@@ -5,6 +5,9 @@ from core.models.base import BaseModel
 
 
 class BomReport(BaseModel):
+    """
+    Stores aggregated bill of materials data for finished, produced, and component materials by plant and year.
+    """
 
     __tablename__ = "bom_reports"
 

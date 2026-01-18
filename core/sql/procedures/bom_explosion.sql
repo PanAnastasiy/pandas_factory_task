@@ -1,3 +1,5 @@
+-- Recursively constructs a bill-of-materials hierarchy, linking finished products to their
+-- components across all levels for each plant and year.
 
 WITH RECURSIVE bom_hierarchy AS (
 

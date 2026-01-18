@@ -11,11 +11,22 @@ from core.services.base import BaseMaterialService
 
 
 class MaterialETLService(BaseMaterialService):
+    """
+    Implements ETL operations for raw material data and BOM reporting.
+    """
 
     def __init__(self, repository: BaseRepository):
+        """
+        Initializes the service with a repository for database operations.
+        """
+
         self.repository = repository
 
     def _read_csv(self, file_path: Path) -> pd.DataFrame:
+        """
+        Reads a CSV file into a DataFrame and strips column names.
+        """
+
         if not file_path.exists():
             logger.error(f"File not found: {file_path}")
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -27,6 +38,10 @@ class MaterialETLService(BaseMaterialService):
         return df
 
     def _transform_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Renames DataFrame columns according to a predefined mapping.
+        """
+
         for old_name, new_name in settings.RENAME_MAP.items():
             if old_name not in df.columns:
                 logger.warning(
@@ -36,6 +51,10 @@ class MaterialETLService(BaseMaterialService):
         return df.rename(columns=settings.RENAME_MAP)
 
     def _clean_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Cleans data types, converts numeric columns, and replaces invalid values with None.
+        """
+
         logger.debug("Cleaning data types...")
 
         for col in settings.ID_COLUMNS:
@@ -65,6 +84,10 @@ class MaterialETLService(BaseMaterialService):
         return df
 
     def _deduplicate_by_year(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Removes duplicate rows based on year, plant, and material identifiers.
+        """
+
         subset_cols = [
             "year",
             "plant_id",
@@ -83,6 +106,10 @@ class MaterialETLService(BaseMaterialService):
         return df_dedup
 
     def run_import_pipeline(self, file_path: Path = settings.INPUT_CSV_PATH) -> int:
+        """
+        Executes the full ETL pipeline: extract, transform, deduplicate, and load data into the database.
+        """
+
         logger.info("Starting ETL pipeline...")
 
         try:
@@ -114,6 +141,10 @@ class MaterialETLService(BaseMaterialService):
             raise e
 
     def generate_bom_report(self) -> List[Any]:
+        """
+        Reads a SQL file and executes it to return the BOM report from the database.
+        """
+
         if not settings.SQL_BOM_SCRIPT_PATH.exists():
             logger.error(f"SQL file not found: {settings.SQL_BOM_SCRIPT_PATH}")
             raise FileNotFoundError("SQL script not found")

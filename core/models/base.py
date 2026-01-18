@@ -5,10 +5,18 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
+    """
+    Serves as the root declarative base for all SQLAlchemy models.
+    """
+
     pass
 
 
 class BaseModel(Base):
+    """
+    Provides common primary key and timestamp fields for all database models.
+    """
+
     __abstract__ = True
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
