@@ -6,8 +6,8 @@ from .base import BaseModel
 
 class RawFactoryData(BaseModel):
     """
-     Represents raw factory production and consumption records
-     for produced and component materials by plant and period.
+    Represents raw factory production and consumption records
+    for produced and component materials by plant and period.
     """
 
     __tablename__ = "raw_factory_data"
