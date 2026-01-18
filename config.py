@@ -4,13 +4,15 @@ from pathlib import Path
 
 
 class Settings:
-    BASE_DIR = Path(__file__).resolve().parent
 
+    BASE_DIR = Path(__file__).resolve().parent
     DATA_DIR = BASE_DIR / "resources" / "csv" / "raw"
     PROCESSED_DIR = BASE_DIR / "resources" / "csv" / "processed"
+    MP3_DIR = BASE_DIR / "resources" / "mp3"
     SQL_DIR = BASE_DIR / "core" / "sql" / "procedures"
     INPUT_CSV_PATH = DATA_DIR / "factory_data.csv"
     SQL_BOM_SCRIPT_PATH = SQL_DIR / "bom_explosion.sql"
+    MUSIC_PATH = MP3_DIR / "background.mp3"
 
     POSTGRES_USER = os.getenv("POSTGRES_USER", "root")
     POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "root")
