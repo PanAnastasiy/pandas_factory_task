@@ -5,4 +5,5 @@ exclude = .git,__pycache__,.venv, .idea
 ignore =
     E402,
     F401,
-    F403
+    F403,
+    W291
