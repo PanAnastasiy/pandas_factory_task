@@ -59,15 +59,19 @@ class MaterialETLService(BaseMaterialService):
 
         logger.debug("Cleaning data types...")
 
-        id_cols = getattr(settings, "ID_COLUMNS", [
-            "plant_id",
-            "produced_material_id",
-            "component_material_id",
-            "produced_material_release_type",
-            "produced_material_production_type",
-            "component_material_release_type",
-            "component_material_production_type"
-        ])
+        id_cols = getattr(
+            settings,
+            "ID_COLUMNS",
+            [
+                "plant_id",
+                "produced_material_id",
+                "component_material_id",
+                "produced_material_release_type",
+                "produced_material_production_type",
+                "component_material_release_type",
+                "component_material_production_type",
+            ],
+        )
 
         for col in id_cols:
             if col in df.columns:
@@ -79,7 +83,9 @@ class MaterialETLService(BaseMaterialService):
                 if col in ["produced_material_id", "plant_id"]:
                     if mask_bad.any():
                         count = mask_bad.sum()
-                        logger.warning(f"Column '{col}': removed {count} empty/invalid rows.")
+                        logger.warning(
+                            f"Column '{col}': removed {count} empty/invalid rows."
+                        )
                         df = df[~mask_bad]
 
         numeric_cols = ["produced_material_quantity", "component_material_quantity"]
@@ -94,7 +100,9 @@ class MaterialETLService(BaseMaterialService):
                 )
 
         if "month" in df.columns:
-            df["month"] = pd.to_numeric(df["month"], errors='coerce').fillna(0).astype(int)
+            df["month"] = (
+                pd.to_numeric(df["month"], errors="coerce").fillna(0).astype(int)
+            )
             if (df["month"] == 0).any():
                 logger.warning("Found rows with invalid 'month'. Removing them.")
                 df = df[df["month"] > 0]
