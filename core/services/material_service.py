@@ -4,6 +4,7 @@ from typing import Any, List
 import numpy as np
 import pandas as pd
 from loguru import logger
+from sqlalchemy import text
 
 from config import settings
 from core.repositories.base import BaseRepository
@@ -24,7 +25,7 @@ class MaterialETLService(BaseMaterialService):
 
     def _read_csv(self, file_path: Path) -> pd.DataFrame:
         """
-        Reads a CSV file into a DataFrame and strips column names.
+        Reads a CSV file into a DataFrame and strips whitespace from column names.
         """
 
         if not file_path.exists():
@@ -39,35 +40,47 @@ class MaterialETLService(BaseMaterialService):
 
     def _transform_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Renames DataFrame columns according to a predefined mapping.
+        Renames DataFrame columns according to a predefined mapping in settings.
         """
 
-        for old_name, new_name in settings.RENAME_MAP.items():
+        for old_name in settings.RENAME_MAP.keys():
             if old_name not in df.columns:
                 logger.warning(
-                    f"Column '{old_name}' not found in CSV. Available columns: {list(df.columns)}"
+                    f"Expected column '{old_name}' not found in CSV. "
+                    f"Available: {list(df.columns)}"
                 )
 
         return df.rename(columns=settings.RENAME_MAP)
 
     def _clean_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Cleans data types, converts numeric columns, and replaces invalid values with None.
+        Cleans data types: converts IDs to strings, quantities to floats, handles NaNs.
         """
 
         logger.debug("Cleaning data types...")
 
-        for col in settings.ID_COLUMNS:
+        id_cols = getattr(settings, "ID_COLUMNS", [
+            "plant_id",
+            "produced_material_id",
+            "component_material_id",
+            "produced_material_release_type",
+            "produced_material_production_type",
+            "component_material_release_type",
+            "component_material_production_type"
+        ])
+
+        for col in id_cols:
             if col in df.columns:
+
                 df[col] = df[col].fillna("").astype(str)
 
-                mask_bad = df[col].isin(["", "nan", "None"])
-                if mask_bad.any():
-                    count = mask_bad.sum()
-                    logger.warning(
-                        f"Column '{col}': removed {count} empty/invalid rows."
-                    )
-                    df = df[~mask_bad]
+                mask_bad = df[col].str.lower().isin(["nan", "none", "null", ""])
+
+                if col in ["produced_material_id", "plant_id"]:
+                    if mask_bad.any():
+                        count = mask_bad.sum()
+                        logger.warning(f"Column '{col}': removed {count} empty/invalid rows.")
+                        df = df[~mask_bad]
 
         numeric_cols = ["produced_material_quantity", "component_material_quantity"]
         for col in numeric_cols:
@@ -75,61 +88,50 @@ class MaterialETLService(BaseMaterialService):
                 df[col] = (
                     df[col]
                     .astype(str)
-                    .str.replace(",", "")
+                    .str.replace(",", "", regex=False)
                     .apply(pd.to_numeric, errors="coerce")
+                    .fillna(0.0)
                 )
+
+        if "month" in df.columns:
+            df["month"] = pd.to_numeric(df["month"], errors='coerce').fillna(0).astype(int)
+            if (df["month"] == 0).any():
+                logger.warning("Found rows with invalid 'month'. Removing them.")
+                df = df[df["month"] > 0]
 
         df = df.replace({np.nan: None})
 
         return df
 
-    def _deduplicate_by_year(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Removes duplicate rows based on year, plant, and material identifiers.
-        """
-
-        subset_cols = [
-            "year",
-            "plant_id",
-            "produced_material_id",
-            "component_material_id",
-        ]
-        actual_subset = [c for c in subset_cols if c in df.columns]
-
-        initial_len = len(df)
-        df_dedup = df.drop_duplicates(subset=actual_subset)
-        dropped_len = initial_len - len(df_dedup)
-
-        if dropped_len > 0:
-            logger.info(f"Duplicates removed (year aggregation): {dropped_len}")
-
-        return df_dedup
-
     def run_import_pipeline(self, file_path: Path = settings.INPUT_CSV_PATH) -> int:
         """
-        Executes the full ETL pipeline: extract, transform, deduplicate, and load data into the database.
+        Executes the full ETL pipeline: extract, transform, clean, and load raw data.
+        Aggregation happens later in SQL.
         """
 
         logger.info("Starting ETL pipeline...")
 
         try:
+            # 1. Extract
             logger.info("Step 1: Extract")
             df = self._read_csv(file_path)
 
-            logger.info("Step 2: Transform")
+            # 2. Transform & Clean
+            logger.info("Step 2: Transform & Clean")
             df = self._transform_columns(df)
             df = self._clean_data_types(df)
-            df = self._deduplicate_by_year(df)
 
-            required_col = "produced_material_id"
-            if required_col not in df.columns:
-                msg = f"Validation Error: Column '{required_col}' is missing."
+            required_cols = ["produced_material_id", "month", "year"]
+            missing = [col for col in required_cols if col not in df.columns]
+            if missing:
+                msg = f"Validation Error: Columns {missing} are missing."
                 logger.critical(msg)
                 raise ValueError(msg)
 
+            # 3. Load
             records = df.to_dict(orient="records")
+            logger.info(f"Step 3: Load ({len(records)} raw rows)")
 
-            logger.info(f"Step 3: Load ({len(records)} rows)")
             self.repository.truncate_table()
             self.repository.bulk_insert(records)
 
@@ -142,15 +144,34 @@ class MaterialETLService(BaseMaterialService):
 
     def generate_bom_report(self) -> List[Any]:
         """
-        Reads a SQL file and executes it to return the BOM report from the database.
+        1. Reads and executes the SQL BOM script (calculation & insertion).
+        2. Selects and returns the calculated data from 'bom_reports' table.
         """
 
         if not settings.SQL_BOM_SCRIPT_PATH.exists():
             logger.error(f"SQL file not found: {settings.SQL_BOM_SCRIPT_PATH}")
             raise FileNotFoundError("SQL script not found")
 
-        logger.info(f"Executing SQL script: {settings.SQL_BOM_SCRIPT_PATH.name}")
+        logger.info(f"Reading SQL script: {settings.SQL_BOM_SCRIPT_PATH.name}")
         with open(settings.SQL_BOM_SCRIPT_PATH, "r", encoding="utf-8") as f:
-            sql_query = f.read()
+            calc_query = f.read()
 
-        return self.repository.execute_raw_sql(sql_query)
+        try:
+
+            logger.info("Executing BOM calculation script...")
+            self.repository.session.execute(text(calc_query))
+            self.repository.session.commit()
+
+            logger.info("Fetching generated BOM report...")
+            select_query = """
+                SELECT * 
+                FROM bom_reports 
+                ORDER BY plant, year, fin_material_id, component_id
+            """
+
+            return self.repository.execute_raw_sql(select_query)
+
+        except Exception as e:
+            logger.exception("Error generating BOM report")
+            self.repository.session.rollback()
+            raise e
