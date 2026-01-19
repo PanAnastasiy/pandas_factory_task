@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, mock_open
 
 import pandas as pd
 import pytest
-from sqlalchemy import text
 
 from core.repositories.raw_repository import RawDataRepository
 from core.services.material_service import MaterialETLService
@@ -23,10 +22,6 @@ def service(mock_repo):
 
 @pytest.fixture
 def sample_df():
-    # Создаем 3 строки:
-    # 0: Все валидно
-    # 1: Валидный месяц, но Quantity = NaN (должна остаться, qty -> 0.0)
-    # 2: Невалидный месяц (должна удалиться)
     return pd.DataFrame(
         {
             "year": [2024, 2024, 2024],
@@ -50,28 +45,22 @@ def test_etl_transformations(service, sample_df, mocker):
     )
     mocker.patch(
         "config.settings.ID_COLUMNS",
-        ["produced_material_id", "component_material_id", "plant_id"]
+        ["produced_material_id", "component_material_id", "plant_id"],
     )
 
-    # 1. Проверяем переименование
     df_renamed = service._transform_columns(sample_df)
     assert "produced_material_id" in df_renamed.columns
     assert "produced_material" not in df_renamed.columns
 
-    # 2. Проверяем очистку типов
     df_cleaned = service._clean_data_types(df_renamed)
 
-    # Исходно было 3 строки. Одна с 'nan' в месяце должна удалиться. Останется 2.
     assert len(df_cleaned) == 2
 
-    # --- Проверка строки 0 (Валидная) ---
     val = df_cleaned.iloc[0]["produced_material_quantity"]
     assert isinstance(val, float)
     assert val == 1000.5
     assert df_cleaned.iloc[0]["month"] == 1
 
-    # --- Проверка строки 1 (Валидный месяц, NaN количество) ---
-    # Эта строка теперь существует (индекс 1), так как месяц у нее "2"
     val_nan = df_cleaned.iloc[1]["produced_material_quantity"]
     assert val_nan == 0.0
     assert df_cleaned.iloc[1]["month"] == 2
@@ -85,7 +74,7 @@ def test_run_import_pipeline_success(service, mocker):
             "year": [2024],
             "month": [1],
             "plant_id": ["P1"],
-            "produced_material_quantity": [100.0]
+            "produced_material_quantity": [100.0],
         }
     )
 
@@ -106,11 +95,13 @@ def test_run_import_pipeline_success(service, mocker):
 
 
 def test_run_import_pipeline_missing_column(service, mocker):
-    bad_df = pd.DataFrame({
-        "produced_material_id": ["1"],
-        "year": [2024]
-        # month is missing
-    })
+    bad_df = pd.DataFrame(
+        {
+            "produced_material_id": ["1"],
+            "year": [2024],
+            # month is missing
+        }
+    )
 
     mocker.patch.object(service, "_read_csv", return_value=bad_df)
     mocker.patch.object(service, "_transform_columns", return_value=bad_df)
